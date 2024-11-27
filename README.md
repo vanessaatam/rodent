@@ -10,4 +10,4 @@ This project explores rodent activity in New York City through interactive visua
 - D3.js
 
 ## Report
-![Rodent NYC Report.pdf][product-screenshot]
+![Rodent NYC Report.pdf][Rodent NYC Report.pdf]
