@@ -1,5 +1,5 @@
 # Rodent Activity in New York City
-(projectscreenshot.png)
+![project](projectscreenshot.png)
 
 ## About The Project
 
