@@ -1,0 +1,862 @@
+<head>
+    <title>NYC 2023 Rat Inspection Map with Filters and Borough Stats</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://d3js.org/topojson.v1.min.js"></script>
+
+    <style>
+        body {
+            margin-left: 30px;
+            margin-right: 30px;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px 0;
+        }
+
+        #title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        #caption {
+            width: 80%;
+            align-content: center;
+            margin-left:150px;
+            margin-right: 150px;
+        }
+        #caption-center{
+            text-align: center;
+        }
+        #dashboard {
+            display: flex;
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 20px;
+            box-sizing: border-box;
+        }
+
+        #filters {
+            width: 23%;
+            margin-right: 2px;
+        }
+
+        #map-container {
+            width: 60%;
+            position: relative;
+            background-color: white;
+            border: 1px solid #ccc;
+            border-bottom: 3px solid #ccc;
+            box-sizing: border-box;
+        }
+
+        #map {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #chart {
+            width: 30%;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            width: 120px;
+            padding: 4px;
+            font: 12px sans-serif;
+            background: lightsteelblue;
+            border-radius: 8px;
+            pointer-events: none;
+            visibility: hidden;
+        }
+
+        #legends {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        #severityLegend {
+            margin-bottom: 10px;
+        }
+
+        #severityLegend strong {
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .legend-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+        }
+        #resetButton{
+            margin-top: 10px;
+            background-color: white;
+            padding: 5px;
+            font-size: 14px;
+            border-radius: 5px;
+            border-width: 1.5px;
+
+
+        }
+        #resetButton:hover{
+            margin-top: 10px;
+            background-color: rgba(189, 217, 255, 0.814);
+            padding: 5px;
+            font-size: 14px;
+            border-radius: 5px;
+            border-width: 1.5px;
+            cursor: pointer;
+            
+    
+        }
+        input{
+            cursor: pointer;
+        }
+        #totalTonnageLegend {
+    visibility: visible;
+    opacity: 1;
+}
+    </style>
+</head>
+
+<body>
+    <div id="title">The Life of Rats in New York City <i>(2023)</i></div>
+
+    <div id="caption">
+        <p>New York City is a bustling epicenter of all kinds of activity, and that includes rats! While rat sightings are
+        pretty common on the streets and in the subway, public records of inspections and complaints filed in response to sightings and 
+        indications of rats can indicate a larger, recurring problem in those locations. Our map shows the traces left behind by rats
+        through instances filed inspections across all five boroughs of New York City, and how they compare to potential sources of food,
+        namely human waste. We can understand how much trash is at a rat's disposal by how many tons are collected in each borough total 
+        across the entire year of 2023, as well as the "density" per square kilometer, potentially indicating high concentration of garbage
+        disposal chutes, dumpsters, and other prime locations for rats to scrounge for food.</p>
+     
+       <p id = "caption-center">Click to zoom in for individual rat presence and inspection results</p> 
+       <p id = "caption-center"> Toggle through the waste collection and restaurant inspection violations to get a sense of how dirty different areas of New York City
+        are <br>
+        
+        (which translates to: how conducive it would be to live there, as a rat!)</p>
+    </div>
+
+    <div id="dashboard">
+        <div id="filters">
+            <div class="filter-title">Filter By:</div>
+        
+            <!-- Tonnage Checkbox -->
+            <label>
+                <input type="checkbox" id="tonnageCheckbox" >Waste Collection
+            </label>
+            <div id="tonnageOptions" style="margin-left: 20px;">
+                <label>
+                    <input type="radio" name="tonnageOption" value="total" disabled> Total amount by borough
+                </label><br>
+                <label>
+                    <input type="radio" name="tonnageOption" value="perKm" disabled> Waste density per sq. km by borough
+                </label>
+            </div>
+        
+            <!-- Restaurant Violations Checkbox -->
+            <label>
+                <input type="checkbox" id="restaurantCheckbox">Restaurant Violations
+            </label>
+            <br>
+    
+            <button id="resetButton">Reset</button>
+        </div>
+
+
+        <!-- Map Section with Legends -->
+        <div id="map-container">
+            <div id="map">
+                <svg id="mapSVG" width="900" height="800"></svg>
+            </div>
+            <div id="legends">
+                <!-- Inspection Result Legend -->
+                <div id="inspectionLegend">
+                    <strong>Rat Inspections</strong>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <!-- script for overlay options-->
+    <script>
+        const tonnageCheckbox = d3.select("#tonnageCheckbox");
+        const tonnageOptions = d3.selectAll("input[name='tonnageOption']");
+        const restaurantCheckbox = d3.select("#restaurantCheckbox");
+        const resetButton = d3.select("#resetButton");
+    
+        tonnageCheckbox.on("change", () => {
+            const isChecked = tonnageCheckbox.property("checked");
+    
+            tonnageOptions.each(function () {
+                const option = d3.select(this);
+                option.property("disabled", !isChecked); 
+                if (!isChecked) {
+                    option.property("checked", false); 
+                }
+            });
+    
+            // Load the selected map if checked; reset the map if unchecked
+            if (isChecked) {
+                const selectedOption = tonnageOptions.filter(":checked").node(); 
+                if (selectedOption) {
+                    loadTonnageMap(selectedOption.value);
+                    console.log("Line chart called");
+                }
+            } else {
+                resetTonnageMap(); 
+            }
+        });
+    
+        // Load the map when a radio button is clicked
+        tonnageOptions.on("change", function () {
+            const option = d3.select(this);
+            if (option.property("checked")) {
+                
+                loadTonnageMap(option.property("value")); 
+            } else {
+                resetTonnageMap();
+            }
+        });
+    
+    
+        // Handle Restaurant Violations checkbox
+        restaurantCheckbox.on("change", () => {
+            if (restaurantCheckbox.property("checked")) {
+                drawRestaurantMap(); 
+            } else {
+                hideRestaurantMap(); 
+            }
+        });
+    
+        // Clear button logic to reset everything
+        resetButton.on("click", () => {
+            // Uncheck all checkboxes and radio buttons
+            tonnageCheckbox.property("checked", false);
+            restaurantCheckbox.property("checked", false);
+            tonnageOptions.each(function () {
+                const option = d3.select(this);
+                option.property("checked", false); 
+                option.property("disabled", true); 
+            });
+
+            // Reset all maps
+            resetTonnageMap(); 
+            hideRestaurantMap(); 
+        });
+
+    </script>
+
+    <!-- script for maps-->
+    <script>
+        // Set up map SVG
+        const svg = d3.select("#mapSVG");
+        const width = svg.attr("width");
+        const height = svg.attr("height");
+        const margin = { top: 20, right: 20, bottom: 20, left: 20 };
+        const mapWidth = width - margin.left - margin.right;
+        const mapHeight = height - margin.top - margin.bottom;
+        let mapGroup = svg.append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        let projection = d3.geoMercator();
+        let path = d3.geoPath().projection(projection);
+        let fullData = [];
+
+        const tooltip = d3.select("#tooltip");
+
+        let nycData;
+        let tonnageData;
+        let nyData;
+        const zoomBase = 2; //change if needed
+        let zoomLevel = 0; //changing variable
+
+        const drawMap = async () => {
+            nycData = await d3.json("NYC_boroughs.geojson");
+
+            // Set up the mercator projection with fitSize based on loaded data
+            projection = d3.geoMercator().fitSize([mapWidth, mapHeight], nycData);
+            path = d3.geoPath().projection(projection);
+
+            tonnageData = await d3.csv("Filtered_Tonnage_Data_2023.csv")
+            // console.log("GeoJSON data:", tonnageData); // Confirm data load
+
+            // const nyrent = await d3.json("ny_rent.topo.json")
+
+            nyData = await d3.json("nyc.geojson")
+
+            mapGroup.selectAll('.borough')
+                .data(nyData.features)
+                .enter()
+                .append('path')
+                .attr('class', 'borough')
+                .attr('d', path)
+                .attr("fill", "#9fd2ff")
+                .attr("stroke", "black")
+                .attr("stroke-width", 1.5)
+                .attr("opacity", 1);
+
+            // Draw the postal code boundaries
+            mapGroup.selectAll('.zipcode')
+                .data(nyData.features)
+                .enter()
+                .append('path')
+                .attr('class', 'zipcode')
+                .attr('d', path)
+                .attr("stroke", "black")
+                .attr("stroke-width", 0.3)
+                .attr("fill", "none");
+            
+            // Zoom Behavior
+            var zoom = d3.zoom()
+                .scaleExtent([1, 20])
+                .translateExtent([[-50, -50], [mapWidth + 50, mapHeight + 50]])
+                .on("zoom", (event) => {
+                    mapGroup.attr('transform', event.transform);
+                    
+                    // if current zoomLevel and newZoomLevel are on opposite sides of zoomBase, updateMapBasedOnZoom()
+                    var newZoomLevel = event.transform.k;
+                    if ((zoomLevel >= zoomBase && newZoomLevel < zoomBase) || (newZoomLevel >= zoomBase && zoomLevel < zoomBase)) {
+                        // switch from rat icons to dots and vice versa
+                        updateMapBasedOnZoom(fullData, newZoomLevel)
+                    }
+                    zoomLevel = newZoomLevel;
+                });
+            svg.call(zoom);
+
+            mapGroup.selectAll('.borough')
+                .style('cursor', () => zoomLevel >= 10 ? 'grab' : 'zoom-in')
+                .on("mouseover", function () { d3.select(this).style('cursor', zoomLevel >= 10 ? 'grab' : 'zoom-in'); })
+                .on("mouseout", function () { d3.select(this).style('cursor', 'default'); })
+                .on("click", clicked);
+
+            //Function for when borough is clicked
+            function clicked(event, d) {
+                // console.log("click");
+                // console.log("d:", d);
+                // Get the bounding box for the clicked borough
+                const bounds = path.bounds(d.geometry);
+                const dx = bounds[1][0] - bounds[0][0];
+                const dy = bounds[1][1] - bounds[0][1];
+                const x = (bounds[0][0] + bounds[1][0]) / 2;
+                const y = (bounds[0][1] + bounds[1][1]) / 2;
+
+                // Determine scale and translation for zoom
+                const scale = Math.max(1, Math.min(10, 0.9 / Math.max(dx / mapWidth, dy / mapHeight)));
+                const translate = [mapWidth / 2 - x * scale, mapHeight / 2 - y * scale + 20];
+
+                let newTransform = d3.zoomIdentity.translate(translate[0], translate[1])
+                    .scale(scale);
+
+                // Smooth transition to new view
+                svg.transition()
+                    .duration(1000)
+                    .call(zoom.transform, newTransform);
+
+                // console.log("bounds", bounds);
+                // console.log(projection([d.LONGITUDE, d.LATITUDE]));
+            }
+
+            // Load the rodent inspection data
+            // Call the updateMap function with the full dataset to add circles to the map
+            d3.csv("Filtered_10000_Rodent_Inspection_2023.csv").then(data => {
+                fullData = data.filter(d => {
+                    d.LATITUDE = +d.LATITUDE;
+                    d.LONGITUDE = +d.LONGITUDE;
+                    d.ZIP_CODE = +d.ZIP_CODE;
+                    return !isNaN(d.LATITUDE) && !isNaN(d.LONGITUDE) && d.RESULT && d.ZIP_CODE !== 0;
+                });
+                updateMapBasedOnZoom(fullData, zoomLevel);
+                mapGroup.lower(); // Make sure boroughs are underneath dots
+            });
+        }
+        drawMap();
+
+        // Function to draw the default map (no borough colors, only rat icons)
+        function drawDefaultMap() {
+            mapGroup.selectAll(".borough").remove();
+            // Keep existing rat icons or other default elements
+        }
+        // Function to render the map based on total tonnage
+        function drawTotalTonnageMap() {
+            const totalTonnageByBorough = {}; // Declare once here
+
+            tonnageData.forEach(d => {
+                const borough = d.BOROUGH;
+                const totalTonnage =
+                    (parseFloat(d.REFUSETONSCOLLECTED) || 0) +
+                    (parseFloat(d.PAPERTONSCOLLECTED) || 0) +
+                    (parseFloat(d.MGPTONSCOLLECTED) || 0) +
+                    (parseFloat(d.RESORGANICSTONS) || 0);
+
+                // Accumulate total tonnage
+                totalTonnageByBorough[borough] = (totalTonnageByBorough[borough] || 0) + totalTonnage;
+            });
+
+            const totalTonnages = Object.values(totalTonnageByBorough);
+            const colorScale = d3.scaleQuantile()
+                .domain(totalTonnages)
+                .range(d3.schemeBlues[5]);
+            projection = d3.geoMercator().fitSize([mapWidth, mapHeight], nycData);
+            path = d3.geoPath().projection(projection);
+            mapGroup.selectAll('.borough')
+                    .attr("fill", d => {
+                        const borough = d.properties.borough;
+                        return colorScale(totalTonnageByBorough[borough] || 0)
+                    })
+                    .on("mouseover", function(event, d) {
+                            // show when mouse on borough
+                            const borough = d.properties.borough;
+                            const tons = totalTonnageByBorough[borough];
+
+                            d3.select("#tooltip")
+                                .style("left", `${event.pageX + 5}px`)
+                                .style("top", `${event.pageY + 5}px`)
+                                .style("visibility", "visible")
+                                .html(`<strong>${borough}</strong><br>Tons collected: ${tons.toFixed(2)}`);
+                        })
+                    .on("mouseout", function() {
+                        // hide when mouse leaves borough
+                        d3.select("#tooltip").style("visibility", "hidden");
+                    })
+                    .attr("opacity", 1);
+            
+                    mapGroup.selectAll(".borough").lower();
+            mapGroup.selectAll("image").raise();
+
+            drawTotalTonnageLegend(colorScale);
+        }
+
+        const drawTonnagePerKmMap = async function () {
+            const totalTonnageByBorough = {}; // Declare separately for this function
+            const tonnagePerAreaByBorough = {}; // Only relevant here
+            // Load restaurant inspection data
+            const tonnageData = await d3.csv("Filtered_Tonnage_Data_2023.csv");
+            // Calculate total tonnage for each borough
+            tonnageData.forEach(d => {
+                const borough = d.BOROUGH;
+                const totalTonnage =
+                    (parseFloat(d.REFUSETONSCOLLECTED) || 0) +
+                    (parseFloat(d.PAPERTONSCOLLECTED) || 0) +
+                    (parseFloat(d.MGPTONSCOLLECTED) || 0) +
+                    (parseFloat(d.RESORGANICSTONS) || 0);
+
+                // Sum total tonnage
+                totalTonnageByBorough[borough] = (totalTonnageByBorough[borough] || 0) + totalTonnage;
+            });
+
+            // console.log("Total tonnage by borough:", totalTonnageByBorough);
+
+            // Calculate borough area and tonnage per km²
+            const EARTH_RADIUS_KM = 6371; // Earth's radius in kilometers
+            const radiansToSquareKilometers = EARTH_RADIUS_KM ** 2;
+
+            nycData.features.forEach(feature => {
+                const borough = feature.properties.BoroName;
+                const totalTonnage = totalTonnageByBorough[borough] || 0; // Default to 0 if no tonnage
+                const areaInSphericalRadians = d3.geoArea(feature); // Calculate area in spherical radians
+                const areaInSquareKilometers = areaInSphericalRadians * radiansToSquareKilometers; // Convert to km²
+
+                if (areaInSquareKilometers > 0) {
+                    tonnagePerAreaByBorough[borough] = totalTonnage / areaInSquareKilometers;
+                } else {
+                    tonnagePerAreaByBorough[borough] = 0; // Handle cases with no area
+                }
+            });
+
+            // console.log("Tonnage per unit area by borough:", tonnagePerAreaByBorough);
+
+            // Color scale for tonnage per area
+            const tonnagePerAreaValues = Object.values(tonnagePerAreaByBorough);
+            // console.log(tonnagePerAreaValues);
+            const colorScale = d3.scaleQuantile()
+                .domain(tonnagePerAreaValues)
+                .range(d3.schemeOranges[5]);
+            projection = d3.geoMercator().fitSize([mapWidth, mapHeight], nycData);
+            path = d3.geoPath().projection(projection);
+            // Render the map
+            mapGroup.selectAll('.borough')
+                    .attr("fill", d => {
+                        const borough = d.properties.borough;
+                        return colorScale(tonnagePerAreaByBorough[borough] || 0)
+                    })
+                    .on("mouseover", function(event, d) {
+                        // show when mouse on borough
+                        const borough = d.properties.borough;
+                        const tons = tonnagePerAreaByBorough[borough];
+
+                        d3.select("#tooltip")
+                            .style("left", `${event.pageX + 5}px`)
+                            .style("top", `${event.pageY + 5}px`)
+                            .style("visibility", "visible")
+                            .html(`<strong>${borough}</strong><br>Tonnage per km²: ${tons.toFixed(2)}`);
+                    })
+                    .on("mouseout", function() {
+                        // hide when mouse leaves borough
+                        d3.select("#tooltip").style("visibility", "hidden");
+                    });
+            mapGroup.selectAll(".borough").lower();
+            mapGroup.selectAll("image").raise();
+
+            drawKmTonnageLegend(colorScale);
+        }
+
+        // Functions to load/reset maps
+        function loadTonnageMap(option) {
+           
+            console.log("Line chart called");
+            if (option === "total") {
+                drawTotalTonnageMap(); // Load Total Tonnage map
+                // mapGroup.select(".density-layer").selectAll("*").remove();
+                d3.select("#tonnageByKmLegend").remove();
+            } else if (option === "perKm") {
+                drawTonnagePerKmMap(); // Load Tonnage per km² map
+                d3.select("#totalTonnageLegend").remove();
+            }
+        }
+    
+        function resetTonnageMap() {
+            mapGroup.selectAll(".borough")
+                .attr("fill", "#9fd2ff") // Reset to default color
+                .attr("opacity", 1);     // Reset opacity if it was changed
+            d3.select("#tonnageByKmLegend").remove();
+            d3.select("#totalTonnageLegend").remove();
+        }
+
+        // Draw Inspection Result Legend
+        const ratIcon = 'colorrat.png';
+        const inspectionLegend = d3.select("#inspectionLegend");
+        const item = inspectionLegend.append("div")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("margin-bottom", "5px")
+            .style("margin-top", "5px");
+
+        item.append("img")
+            .attr("src", ratIcon)
+            .attr("width", 20)
+            .attr("height", 20)
+            .style("margin-right", "10px");
+
+        item.append("span").text("Rat Presence");
+
+        /*======================================================================================================
+        ALL FUNCTIONS
+        =======================================================================================================*/
+
+        function updateMapBasedOnZoom(filteredData, zoomLevel) {
+            if (zoomLevel >= zoomBase) {
+                d3.selectAll("image").remove();
+                updateMapPoints(filteredData);  // Show individual points (zoomed in)
+            } else {
+                d3.selectAll("circle").remove();
+                updateMapClusters(filteredData);  // Show clusters (zoomed out)
+            }
+        }
+
+        // Draw the circles on the map based on clusters
+        function updateMapClusters(filteredData) {
+            // console.log("Clusters")
+            // Circle clusters miles to kilometers
+            const clusterRadius = 1 * 1.609; //X mile to kilometer
+
+            //Creating clusters to map the clusters
+            let clusters = [];
+            filteredData.forEach(d => {
+                // Current point coordinates
+                const [cx, cy] = projection([d.LONGITUDE, d.LATITUDE]);
+
+                // Check if the circle belongs to a cluster, if not adds to new cluster
+                let clusterFound = false;
+                clusters.forEach(cluster => {
+                    const [clusterX, clusterY] = projection([cluster.longitude, cluster.latitude]);
+                    const distance = d3.geoDistance(
+                        [d.LONGITUDE, d.LATITUDE],
+                        [cluster.longitude, cluster.latitude]
+                    ) * 6371; // Convert to kilometers
+
+                    // In radius, then add
+                    if (distance <= clusterRadius) {
+                        cluster.count++;
+                        clusterFound = true;
+                    }
+                });
+
+                // Not in radius, add to new cluster
+                if (!clusterFound) {
+                    clusters.push({
+                        longitude: d.LONGITUDE,
+                        latitude: d.LATITUDE,
+                        count: 1
+                    });
+                }
+            });
+
+            // Define a scale for circle radius based on cluster size
+            // https://www.d3indepth.com/scales/
+            const radiusScale = d3.scaleSqrt()
+                .domain([1, d3.max(clusters, d => d.count)])
+                .range([5, 50]);
+
+            // <a href="https://www.flaticon.com/free-icons/rat" title="rat icons">Rat icons created by Anditii Creative - Flaticon</a>
+            var rat = 'colorrat.png';
+
+            // Draw each cluster as a circle on the map
+            mapGroup.selectAll("image")
+                .data(clusters)
+                .enter()
+                .append("image")
+                .attr("xlink:href", rat)
+                .attr("width", d => radiusScale(d.count))
+                .attr("height", d => radiusScale(d.count))
+                .attr("x", d => projection([d.longitude, d.latitude])[0])
+                .attr("y", d => projection([d.longitude, d.latitude])[1])
+                .style("opacity", 1)
+                .on("mouseover", function (event, d) {
+                    d3.select(this)
+                        .style("opacity", 0.8)
+                        .style("pointer-events", "all")
+                        .raise();
+                    tooltip.style("visibility", "visible")
+                        .text(`Inspections: ${d.count}`)
+                        .style("top", (event.pageY - 28) + "px")
+                        .style("left", (event.pageX + 5) + "px");
+                })
+                .on("mouseout", function () {
+                    d3.select(this).style("opacity", 1);
+                    tooltip.style("visibility", "hidden")
+                           .style("opacity", 1);
+                });
+        }
+
+        // Plots all the points
+        function updateMapPoints(filteredData) {
+            mapGroup.selectAll("circle").remove();
+
+            mapGroup.selectAll("circle")
+                .data(filteredData)
+                .enter()
+                .append("circle")
+                .attr("cx", d => projection([d.LONGITUDE, d.LATITUDE])[0])
+                .attr("cy", d => projection([d.LONGITUDE, d.LATITUDE])[1])
+                .attr("r", 2)
+                .attr("fill", "grey")
+                .attr("opacity", 0.7)
+                .on("mouseover", function (event, d) {
+                    tooltip.style("visibility", "visible")
+                        .html(`Date: ${new Date(d.INSPECTION_DATE).toLocaleDateString()}<br>
+                        Result: ${d.RESULT}`).style("top", (event.pageY - 28) + "px")
+                        .style("left", (event.pageX + 5) + "px");
+                })
+                .on("mouseout", () => tooltip.style("visibility", "hidden"));
+        }
+
+        // Function to draw the density map for restaurant violations
+        function drawRestaurantMap() {
+            const Offset = 20; 
+            const requestDataDensity = async function () {
+                // Load restaurant inspection data
+                const restaurantData = await d3.csv("NYC_Restaurant_Inspection_Results_2023.csv");
+
+                // Process restaurant data to get pixel positions
+                restaurantData.forEach(d => {
+                    d.position = projection([d.Longitude, d.Latitude]);
+                });
+                
+                // Generate density contours
+                const contourGen = d3.contourDensity()
+                    .x(d => d.position[0] + Offset)
+                    .y(d => d.position[1])
+                    .size([mapWidth, mapHeight])
+                    .thresholds(10);
+
+                const contours = contourGen(restaurantData);
+
+                // Create color scale for density levels
+                let valueExtent = d3.extent(contours, d => d.value);
+                let colorScale = d3.scaleSequential(d3.interpolateReds).domain(valueExtent)
+
+                // Ensure contours are drawn between boroughs and rat icons
+                let densityLayer = mapGroup.select(".density-layer");
+                if (densityLayer.empty()) {
+                    densityLayer = mapGroup.append("g").attr("class", "density-layer");
+                } else {
+                    densityLayer.selectAll("*").remove();
+                }
+
+                // Draw contours
+                densityLayer.selectAll("path")
+                    .data(contours)
+                    .join("path")
+                    .attr("class", "contours")
+                    .attr("d", d3.geoPath())
+                    .attr("fill", d => colorScale(d.value))
+                    .attr("opacity", 0.5)
+                    .attr("stroke", "rgba(255, 0, 0, 0.8)")
+                    .attr("stroke-width", 1);
+                
+                drawRestaurantLegend(contours, colorScale);
+
+                // Adjust layer positions to make sure the contour map sits inbetween boroughs and rat icons
+                mapGroup.selectAll(".borough").lower();
+                mapGroup.select(".density-layer").raise();
+                mapGroup.selectAll("image").raise();
+            };
+            requestDataDensity();
+        } 
+
+        // Function to hide the restaurant map
+        function hideRestaurantMap() {
+            mapGroup.select(".density-layer").selectAll("*").remove();
+            d3.select("#severityLegend").remove();
+        }
+
+        // Function to draw a legend dynamically based on the colorScale
+        function drawRestaurantLegend(contours, colorScale) {
+            // Get thresholds and colors from the color scale
+            const thresholds = contours.map(d => d.value);
+            const colors = thresholds.map(d => colorScale(d));
+
+                const legendContainer = d3.select("#legends")
+                    .append("div")
+                    .attr("id", "severityLegend");
+
+                legendContainer.append("strong")
+                    .text("Violation Severity")
+                    .style("margin-top", "15px");
+
+                thresholds.forEach((threshold, i) => {
+                    const legendItem = legendContainer.append("div")
+                        .attr("class", "legend-item");
+
+                legendItem.append("span")
+                    .style("display", "inline-block")
+                    .style("width", "20px")
+                    .style("height", "20px")
+                    .style("background-color", colors[i])
+                    .style("margin-right", "10px");
+                legendItem.append("span").text(`>= ${threshold.toFixed(2)}`);
+            });
+        }
+            
+        // Draw total tonnage map legend bar
+        function drawTotalTonnageLegend(colorScale) {
+            const colors = colorScale.range();
+            const colorDomain = colorScale.domain();
+
+            const margin = { top: 30, right: 20, bottom: 30, left: 20 };
+
+            const legendContainer = d3.select("#legends")
+                                        .append("div")
+                                        .attr("id", "totalTonnageLegend");
+
+            legendContainer.append("strong")
+                            .text("Tons of Waste Collected in 2023")
+                            .style("display", "block")
+                            .style("margin-top", "10px")
+                            .style("margin-bottom", "10px");
+
+            const gradientBar = legendContainer.append("div")
+                            .style("position", "relative")
+                            .style("width", "280px")
+                            .style("height", "20px")
+                            .style("background", `linear-gradient(to right, ${colors.join(", ")})`)
+                            .style("border", "1px solid #ccc")
+                            .style("margin-bottom", "5px");
+
+            const labels = gradientBar.append("div")
+                .style("position", "absolute")
+                .style("top", "100%")
+                .style("width", "100%")
+                .style("display", "flex")
+                .style("justify-content", "space-between")
+                .style("font-size", "12px");
+
+            // legend labels
+            labels.append("span")
+                .text(d3.format(".3s")(colorDomain[0]))
+                .style("position", "absolute")
+                .style("left", "0");
+
+            labels.append("span")
+                .text(d3.format(".3s")(colorDomain[colorDomain.length - 1]))
+                .style("position", "absolute")
+                .style("right", "0");
+        }
+
+        // Draw total tonnage map legend bar
+        function drawKmTonnageLegend(colorScale) {
+            const colors = colorScale.range();
+            const colorDomain = colorScale.domain();
+
+            const margin = { top: 30, right: 20, bottom: 30, left: 20 };
+
+            const legendContainer = d3.select("#legends")
+                                        .append("div")
+                                        .attr("id", "tonnageByKmLegend");
+
+            legendContainer.append("strong")
+                            .text("Tons of Waste Collected Per Square Kilometer")
+                            .style("display", "block")
+                            .style("margin-top", "10px")
+                            .style("margin-bottom", "10px");
+
+            const gradientBar = legendContainer.append("div")
+                            .style("position", "relative")
+                            .style("width", "280px")
+                            .style("height", "20px")
+                            .style("background", `linear-gradient(to right, ${colors.join(", ")})`)
+                            .style("border", "1px solid #ccc")
+                            .style("margin-bottom", "5px");
+
+            const labels = gradientBar.append("div")
+                .style("position", "absolute")
+                .style("top", "100%")
+                .style("width", "100%")
+                .style("display", "flex")
+                .style("justify-content", "space-between")
+                .style("font-size", "12px");
+
+            // legend labels
+            labels.append("span")
+                .text(d3.format(".3s")(colorDomain[0]))
+                .style("position", "absolute")
+                .style("left", "0");
+
+            labels.append("span")
+                .text(d3.format(".3s")(colorDomain[colorDomain.length - 1]))
+                .style("position", "absolute")
+                .style("right", "0");
+            }
+
+        
+          
+    </script>
+</body>
+
+</html>
